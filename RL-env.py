@@ -1,3 +1,4 @@
+# engine_env.py
 import numpy as np
 import torch
 import gymnasium as gym
@@ -8,7 +9,7 @@ from DNN import DNNModel
 class DualFuelEngineEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, mat_path='/home/bob-koch-lab/RL_training/firstDataset.mat'):
+    def __init__(self, mat_path='firstDataset.mat'):
         super().__init__()
 
         # === Load dataset ===
@@ -26,24 +27,24 @@ class DualFuelEngineEnv(gym.Env):
         self.soi_main = signal[6][0].flatten()
         self.doi_h2 = signal[7][0].flatten()
 
-        # Split actions and observations
+        # Observations and actions
         self.actions_raw = np.column_stack((self.doi_main, self.soi_pre, self.soi_main, self.doi_h2))
         self.observations_raw = np.column_stack((self.imep, self.nox, self.pm, self.mprr))
 
-        # Compute bounds
         self.action_low, self.action_high = self._get_bounds(self.actions_raw)
         self.obs_low, self.obs_high = self._get_bounds(self.observations_raw)
 
-        # Define Gym spaces
         self.action_space = spaces.Box(low=self.action_low, high=self.action_high, dtype=np.float32)
         self.observation_space = spaces.Box(low=self.obs_low, high=self.obs_high, dtype=np.float32)
 
-        # Initialize state
         self.state = None
         self.current_step = 0
-
-        # Dataset as transition model (for now)
         self.dataset_size = self.actions_raw.shape[0]
+
+        # Load trained PyTorch model
+        self.model = DNNModel(input_size=8, hidden_size_1=31, hidden_size_2=23, output_size=4)
+        self.model.load_state_dict(torch.load('best_model.pth', map_location=torch.device('cpu')))
+        self.model.eval()
 
     def _get_bounds(self, data, margin_ratio=0.05):
         min_vals = np.nanmin(data, axis=0)
@@ -58,27 +59,29 @@ class DualFuelEngineEnv(gym.Env):
         return self.state.astype(np.float32), {}
 
     def step(self, action):
-        # Clip action to valid range
         action = np.clip(action, self.action_low, self.action_high)
 
-        # For now: next obs is from dataset (surrogate)
-        # TODO: Replace this with your trained PyTorch model
-        next_step = (self.current_step + 1) % self.dataset_size
-        next_obs = self.observations_raw[next_step]
+        # Create input for the model: concatenate obs + action
+        input_array = np.concatenate([self.state, action])
+        input_tensor = torch.tensor(input_array, dtype=torch.float32)
+
+        with torch.no_grad():
+            next_obs_tensor = self.model(input_tensor)
+        next_obs = next_obs_tensor.numpy()
 
         imep, nox, pm, mprr = next_obs
 
-        # === Reward function ===
+        # Reward calculation
         reward = (
             +1.0 * imep
             - 0.01 * nox
             - 0.05 * pm
-            - 0.5 * max(mprr - 15, 0)  # Penalize high MPRR
+            - 0.5 * max(mprr - 15, 0)
         )
 
         done = False
         truncated = False
-        self.current_step = next_step
+        self.current_step = (self.current_step + 1) % self.dataset_size
         self.state = next_obs
 
         return next_obs.astype(np.float32), reward, done, truncated, {}
