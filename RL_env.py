@@ -43,7 +43,7 @@ class DualFuelEngineEnv(gym.Env):
 
         # Load trained PyTorch model
         self.model = DNNModel(input_size=8, hidden_size_1=31, hidden_size_2=23, output_size=4)
-        self.model.load_state_dict(torch.load('best_model.pth', map_location=torch.device('cpu')))
+        self.model.load_state_dict(torch.load('best_model.pth'))
         self.model.eval()
 
     def _get_bounds(self, data, margin_ratio=0.05):
@@ -74,9 +74,9 @@ class DualFuelEngineEnv(gym.Env):
         # Reward calculation
         reward = (
             +1.0 * imep
-            - 0.01 * nox
-            - 0.05 * pm
-            - 0.5 * max(mprr - 15, 0)
+            +1.0 * nox
+            +1.0 * pm
+            +1.0 * mprr
         )
 
         done = False

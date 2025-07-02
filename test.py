@@ -16,6 +16,8 @@ for i in range(10):
     print("  Action:", action)
     print("  Observation:", next_obs)
     print("  Reward:", reward)
+    
     env.render()
+    print("")
 
 env.close()
